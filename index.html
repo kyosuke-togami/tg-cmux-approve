@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>承認</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root { --bg: var(--tg-theme-bg-color, #fff); --fg: var(--tg-theme-text-color, #111); --hint: var(--tg-theme-hint-color, #888);
+          --btn: var(--tg-theme-button-color, #2481cc); --btnfg: var(--tg-theme-button-text-color, #fff); }
+  body { margin: 0; padding: 24px 16px; font: 16px/1.5 -apple-system, system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 20px; margin: 0 0 12px; }
+  .what { padding: 12px; border-radius: 10px; background: rgba(127,127,127,.12); word-break: break-all; margin-bottom: 20px; }
+  button { display: block; width: 100%; padding: 14px; margin: 10px 0; border: 0; border-radius: 10px; font-size: 17px; font-weight: 600; }
+  .ok { background: var(--btn); color: var(--btnfg); }
+  .ng { background: rgba(127,127,127,.18); color: var(--fg); }
+  #msg { color: var(--hint); font-size: 14px; }
+</style>
+</head>
+<body>
+<h1 id="title">Claude の操作承認</h1>
+<div class="what" id="what"></div>
+<button class="ok" id="ok" hidden></button>
+<button class="ng" id="ng" hidden>拒否</button>
+<p id="msg"></p>
+<script>
+const tg = Telegram.WebApp, bm = tg.BiometricManager;
+const p = new URLSearchParams(location.hash.slice(1));
+const mode = p.get("mode") || "approve", req = p.get("req") || "";
+const $ = id => document.getElementById(id);
+const say = t => $("msg").textContent = t;
+const send = o => tg.sendData(JSON.stringify(o));  // 送信後に自動で閉じる
+tg.ready(); tg.expand();
+
+function randomToken() {
+  const a = new Uint8Array(32); crypto.getRandomValues(a);
+  return Array.from(a, b => b.toString(16).padStart(2, "0")).join("");
+}
+
+bm.init(() => {
+  if (!bm.isBiometricAvailable) return say("この端末では生体認証が使えません（Telegram を最新版にしてください）");
+  if (mode === "setup") {
+    $("title").textContent = "生体認証の登録";
+    $("what").textContent = "この iPhone の " + (bm.biometricType === "face" ? "Face ID" : "生体認証") + " を Claude の承認に使います。";
+    $("ok").textContent = "登録する"; $("ok").hidden = false;
+    $("ok").onclick = () => bm.requestAccess({ reason: "Claude の操作承認に使用します" }, granted => {
+      if (!granted) return say("アクセスが許可されませんでした。Telegram の設定 > プライバシー > 生体認証 から許可できます");
+      const tok = randomToken();
+      bm.updateBiometricToken(tok, ok => ok ? send({ type: "setup", token: tok }) : say("保存に失敗しました"));
+    });
+    return;
+  }
+  $("what").textContent = p.get("what") || "(内容不明)";
+  if (!bm.isAccessGranted || !bm.isBiometricTokenSaved) return say("未登録です。Mac で approve.py setup を実行してください");
+  $("ok").textContent = "✅ " + (bm.biometricType === "face" ? "Face ID" : "生体認証") + " で承認"; $("ok").hidden = false; $("ng").hidden = false;
+  $("ok").onclick = () => bm.authenticate({ reason: "Claude の操作を承認" }, (ok, tok) =>
+    ok && tok ? send({ type: "approve", req, token: tok }) : say("認証できませんでした"));
+  $("ng").onclick = () => send({ type: "deny", req });
+});
+</script>
+</body>
+</html>
