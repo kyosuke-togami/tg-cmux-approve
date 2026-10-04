@@ -53,8 +53,10 @@ bm.init(() => {
   $("what").textContent = p.get("what") || "(内容不明)";
   if (!bm.isAccessGranted || !bm.isBiometricTokenSaved) return say("未登録です。Mac で approve.py setup を実行してください");
   $("ok").textContent = "✅ " + (bm.biometricType === "face" ? "Face ID" : "生体認証") + " で承認"; $("ok").hidden = false; $("ng").hidden = false;
-  $("ok").onclick = () => bm.authenticate({ reason: "Claude の操作を承認" }, (ok, tok) =>
-    ok && tok ? send({ type: "approve", req, token: tok }) : say("認証できませんでした"));
+  const auth = () => bm.authenticate({ reason: "Claude の操作を承認" }, (ok, tok) =>
+    ok && tok ? send({ type: "approve", req, token: tok }) : say("認証できませんでした。ボタンから再試行できます"));
+  $("ok").onclick = auth;
+  auth();  // 開いたらすぐ Face ID（ボタンを押す手間を省く）
   $("ng").onclick = () => send({ type: "deny", req });
 });
 </script>
