@@ -50,11 +50,24 @@ bm.init(() => {
     });
     return;
   }
-  $("what").textContent = p.get("what") || "(内容不明)";
+  const n = Number(p.get("n") || 1);
+  $("what").textContent = (n > 1 ? `【${n}件まとめて承認】` : "") + (p.get("what") || "(内容不明)");
   if (!bm.isAccessGranted || !bm.isBiometricTokenSaved) return say("未登録です。Mac で approve.py setup を実行してください");
   $("ok").textContent = "✅ " + (bm.biometricType === "face" ? "Face ID" : "生体認証") + " で承認"; $("ok").hidden = false; $("ng").hidden = false;
-  const auth = () => bm.authenticate({ reason: "Claude の操作を承認" }, (ok, tok) =>
-    ok && tok ? send({ type: "approve", req, token: tok }) : say("認証できませんでした。ボタンから再試行できます"));
+  // v2（2026-10-17 WS-A）: token そのものは送らず、依頼ごとの署名 HMAC(token, rid|sha256(what)|exp) だけを送る
+  const exp = p.get("exp") || "", what = p.get("what") || "";
+  const hex = b => Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, "0")).join("");
+  const enc = new TextEncoder();
+  async function sign(tok) {
+    const h = hex(await crypto.subtle.digest("SHA-256", enc.encode(what)));
+    const key = await crypto.subtle.importKey("raw", enc.encode(tok), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    return hex(await crypto.subtle.sign("HMAC", key, enc.encode(`${req}|${h}|${exp}`)));
+  }
+  const auth = () => bm.authenticate({ reason: "Claude の操作を承認" }, (ok, tok) => {
+    if (!(ok && tok)) return say("認証できませんでした。ボタンから再試行できます");
+    if (!exp) return send({ type: "approve", req, token: tok });  // 旧形式の依頼（exp なし）だけ旧方式
+    sign(tok).then(sig => send({ type: "approve", v: 2, req, exp: Number(exp), sig }), () => say("署名に失敗しました"));
+  });
   $("ok").onclick = auth;
   auth();  // 開いたらすぐ Face ID（ボタンを押す手間を省く）
   $("ng").onclick = () => send({ type: "deny", req });
